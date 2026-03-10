@@ -17,10 +17,16 @@ load_dotenv() # load api keys from .env file for security
 genai.configure(api_key=os.getenv("GENAI_API_KEY")) # what this does it set the API key for gemini so that we can make requests to the API
 model = genai.GenerativeModel('gemini-2.5-flash') # specify the model version to use
 
+# valid market sectors users can choose from
+VALID_SECTORS = {
+    "technology", "finance", "healthcare", "energy",
+    "consumer", "industrials", "real estate", "utilities", "materials"
+}
 
-def get_gemini_analysis(news_articles, sector): # takes in news articles and sector as input, might change to take only 1 article later
+
+def get_gemini_analysis(news_articles, person, sector): # takes in news articles, person, and sector as input
     prompt = f"""
-        Analyze the following news articles about Donal Trump's recent actions and their impact on the
+        Analyze the following news articles about {person}'s recent actions and their impact on the
         {sector} sector: Based on this, provide:
 
         1. Investor Sentiment (Bullish, Bearish, or Neutral) and explain why
@@ -76,7 +82,7 @@ def get_gemini_analysis(news_articles, sector): # takes in news articles and sec
 
         if not cleaned_text.startswith('{'): # basic check to see if response is JSON
             print("ERROR: Response doesn't start with '{'")
-            # Return a fallback response for the hackathon
+            # Return a fallback response
             return create_fallback_response(sector)
 
         convert = json.loads(cleaned_text) # converts JSON to python dictionary, with key being the field names and values being gemini responses
@@ -94,19 +100,19 @@ def get_gemini_analysis(news_articles, sector): # takes in news articles and sec
 def create_fallback_response(sector): # if gemini fails, return this hardcoded response
     """Fallback response when Gemini fails"""
     return {
-        "sentiment": "gemini-2.5-pro",
+        "sentiment": "Neutral",
         "whySentiment": "Mixed market signals from recent news coverage.",
         "shortTermOutlook": "Consolidate", 
         "whyShortTermOutlook": "Market digesting recent political developments.",
         "longTermOutlook": "Up",
-        "whyLongTermOutlook": "Technology sector fundamentals remain strong despite political volatility.",
+        "whyLongTermOutlook": f"{sector.title()} sector fundamentals remain strong despite political volatility.",
         "stocksAffected": [
             {"ticker": "AAPL", "movement": "Up"},
             {"ticker": "MSFT", "movement": "Up"},
             {"ticker": "GOOGL", "movement": "Consolidate"},
             {"ticker": "TSLA", "movement": "Down"}
         ],
-        "newsSummary": "Recent developments show mixed impact on technology sector. Investors are advised to monitor policy changes that may affect tech regulation and trade policies. Key stocks to watch include AAPL, MSFT, GOOGL, and TSLA as they navigate the current political landscape."
+        "newsSummary": f"Recent developments show mixed impact on the {sector} sector. Investors are advised to monitor policy changes that may affect regulation and trade policies. Key stocks to watch as they navigate the current political landscape."
     }
 
 NEWS_API_BASE_URL = "https://newsapi.org/v2/everything"
@@ -121,7 +127,7 @@ def get_news_articles(query, lang='en', page_size=5):
         "sortBy": "relevancy" # sort articles by relevancy
     }
     try:
-        response = requests.get(NEWS_API_BASE_URL, params=params)
+        response = requests.get(NEWS_API_BASE_URL, params=params, timeout=10)
         response.raise_for_status() # checks if response has HTTP errors ( 401 or 404 not found), raises exception if so
         articles = response.json().get('articles', []) # gets list of articles (".get()") and converts to python dictionary (.json()) default to empty list if none found
         # Concatenate titles and descriptions for Gemini
@@ -158,22 +164,30 @@ def home():
 @app.route('/analyze', methods=['POST'])
 def analyze_sector():
     try:
-        # HARDCODE technology sector for the hackathon
-        sector = "technology"
+        data = request.get_json(silent=True) or {}
+        person = (data.get('person') or '').strip() # person to analyze, provided by the user
+        sector = (data.get('sector') or 'technology').strip().lower() # market sector, defaults to technology
+
+        if not person:
+            return jsonify({"error": "Please provide a person name to analyze."}), 400
+
+        if sector not in VALID_SECTORS: # fall back to technology if invalid sector is given
+            sector = "technology"
         
-        news_query = f"Donald Trump AND {sector}"
+        news_query = f"{person} AND {sector}"
         news_articles_text = get_news_articles(news_query)
 
         if not news_articles_text: 
             return jsonify({"error": "Could not retrieve news articles for this sector."}), 500
 
         # Call get_gemini_analysis ONCE, and it returns a Python dictionary
-        analysis_data = get_gemini_analysis(news_articles_text, sector)
+        analysis_data = get_gemini_analysis(news_articles_text, person, sector)
 
         # Return the analysis data
         response_payload = {
             # get the values from each key in the analysis_data dictionary, default to none' or empty list if key not found
-            # usuall using .get() method to avoid KeyError common with direct indexing '[]'
+            # usually using .get() method to avoid KeyError common with direct indexing '[]'
+            "person": person,
             "sector": sector,
             "sentiment": analysis_data.get('sentiment'), 
             "whySentiment": analysis_data.get('whySentiment'),
@@ -213,7 +227,7 @@ if __name__ == '__main__':
 
     """
     print(" AI Flask App...")
-    if not os.getenv("GEMINI_API_KEY"): print("WARNING: GEMINI_API_KEY not loaded!")
+    if not os.getenv("GENAI_API_KEY"): print("WARNING: GENAI_API_KEY not loaded!")
     if not os.getenv("NEWS_API_KEY"): print("WARNING: NEWS_API_KEY not loaded!")
     if not os.getenv("ELEVENLABS_API_KEY"): print("WARNING: ELEVENLABS_API_KEY not loaded!")
-    app.run(debug=True, port=5000) # run the app in debug mode for development on port 5000
+    app.run(debug=os.getenv("FLASK_DEBUG", "false").lower() == "true", port=5000) # run the app in debug mode for development on port 5000
