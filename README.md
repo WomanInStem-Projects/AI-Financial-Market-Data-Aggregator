@@ -2,6 +2,7 @@
 
 Web app that aggregates real-time news about any political or financially influential person and uses Google Gemini AI to analyze how their actions impact a market sector. Enter a name, pick a sector, get instant investor sentiment, market outlook, affected stocks, and an AI news summary.
 Website accessible at : https://what-did-trump-do.onrender.com/
+> Website name is not a representation of authors political beliefs but a representation of the reason behind this app was created.
 > Not financial advice. This tool surfaces real market dynamics so retail investors can see what institutional traders already know.
 
 ---
